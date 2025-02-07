@@ -1,0 +1,49 @@
+import pandas as pd
+import backtrader as bt
+
+class MeanReversionMomentumStrategy(bt.Strategy):
+    params = (
+        ("ma_short", 5),  # 短期均线周期
+        ("ma_long", 20),  # 长期均线周期
+        ("zscore_threshold", 2),  # Z-score阈值
+        ("atr_period", 14),  # ATR周期
+        ("stop_loss", 0.02),  # 止损比例
+        ("take_profit", 0.05),  # 止盈比例
+    )
+
+    def __init__(self):
+        # 计算指标
+        self.ma_short = bt.indicators.SMA(self.data.close, period=self.params.ma_short)
+        self.ma_long = bt.indicators.SMA(self.data.close, period=self.params.ma_long)
+        self.std = bt.indicators.StdDev(self.data.close, period=self.params.ma_short)
+        self.zscore = (self.data.close - self.ma_short) / self.std
+        self.atr = bt.indicators.ATR(self.data, period=self.params.atr_period)
+
+    def next(self):
+        # 均值回归开仓
+        if self.zscore > self.params.zscore_threshold:  # 超买，开空单
+            self.sell(size=1)
+        elif self.zscore < -self.params.zscore_threshold:  # 超卖，开多单
+            self.buy(size=1)
+
+        # 动量突破开仓
+        if self.data.close > self.ma_long + 2 * self.atr:  # 突破上轨，开多单
+            self.buy(size=1)
+        elif self.data.close < self.ma_long - 2 * self.atr:  # 突破下轨，开空单
+            self.sell(size=1)
+
+        # 止损止盈
+        for trade in self.trades:
+            if trade.pnl / trade.size <= -self.params.stop_loss:  # 止损
+                trade.close()
+            elif trade.pnl / trade.size >= self.params.take_profit:  # 止盈
+                trade.close()
+
+# 回测框架
+if __name__ == "__main__":
+    cerebro = bt.Cerebro()
+    data = bt.feeds.YahooFinanceData(dataname="AAPL", fromdate=pd.to_datetime("2020-01-01"), todate=pd.to_datetime("2023-01-01"))
+    cerebro.adddata(data)
+    cerebro.addstrategy(MeanReversionMomentumStrategy)
+    cerebro.run()
+    cerebro.plot()
